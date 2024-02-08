@@ -13,21 +13,13 @@ report_status()
     echo -e "\n\n###### $1"
 }
 
-update_npm()
-{
-    report_status "Updating npm..."
-    npm install -g npm
-}
-
-update_pnpm()
-{
-    report_status "Updating pnpm..."
-    npm install -g pnpm
-}
-
 pnpm_install() {
     pushd "$SRC_DIR" || exit 1
-    pnpm install --frozen-lockfile
+	if [ "$EUID" -eq 0 ]; then
+        sudo -u pi pnpm install --aggregate-output --no-color  --config.confirmModulesPurge=false
+    else
+		pnpm install --aggregate-output --no-color  --config.confirmModulesPurge=false
+	fi
     popd || exit 1
 }
 
@@ -64,6 +56,20 @@ install_hooks()
 	fi
 }
 
+install_cli()
+{
+	report_status "Installing RatOS CLI"
+	sudo=""
+	if [ "$EUID" -ne 0 ]
+	then
+		sudo="sudo"
+	fi
+	if [ ! -L "/usr/local/bin/ratos" ]; then
+ 	   $sudo ln -s "$SRC_DIR/bin/ratos" "/usr/local/bin/ratos"
+	   $sudo chmod a+x "/usr/local/bin/ratos"
+	fi
+}
+
 verify_users()
 {
 	if ! id "pi" &>/dev/null; then
@@ -72,12 +78,25 @@ verify_users()
 	fi
 }
 
+install_udev_rule()
+{
+	report_status "Installing udev rule"
+	sudo=""
+	if [ "$EUID" -ne 0 ]
+	then
+		sudo="sudo"
+	fi
+	if [ ! -e /etc/udev/rules.d/97-ratos.rules ]; then
+		$sudo ln -s "$SCRIPT_DIR/ratos.rules" /etc/udev/rules.d/97-ratos.rules
+	fi
+}
+
 ensure_sudo_command_whitelisting()
 {
-	sudo="sudo"
-	if [ "$1" = "root" ]
+	sudo=""
+	if [ "$EUID" -ne 0 ]
 	then
-		sudo=""
+		sudo="sudo"
 	fi
     report_status "Updating whitelisted commands"
 	# Whitelist RatOS configurator git hook scripts
@@ -105,6 +124,8 @@ pi  ALL=(ALL) NOPASSWD: $SCRIPT_DIR/add-wifi-network.sh
 pi  ALL=(ALL) NOPASSWD: $SCRIPT_DIR/change-hostname.sh
 pi  ALL=(ALL) NOPASSWD: $SCRIPT_DIR/dfu-flash.sh
 pi  ALL=(ALL) NOPASSWD: $SCRIPT_DIR/board-script.sh
+pi  ALL=(ALL) NOPASSWD: $SCRIPT_DIR/flash-path.sh
+pi  ALL=(ALL) NOPASSWD: $SCRIPT_DIR/klipper-compile.sh
 __EOF
 
 	$sudo chown root:root /tmp/031-ratos-configurator-scripts
