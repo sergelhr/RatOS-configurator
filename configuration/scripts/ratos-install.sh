@@ -28,16 +28,19 @@ install_printer_config()
 install_udev_rules()
 {
     report_status "Installing udev rules"
-    $SUDO ln -sf "$CFG_DIR"/boards/*/*.rules /etc/udev/rules.d/
+    # The original `$SUDO ln -sf boards/*/*.rules /etc/udev/rules.d/` fails
+    # inside the image build chroot because the mount has nosuid set, making
+    # sudo non-functional. Loop per-file and fall back to cp when ln -s fails.
+    find "$CFG_DIR/boards" -name '*.rules' | while read -r rules_file; do
+        target="/etc/udev/rules.d/$(basename "$rules_file")"
+        $SUDO rm -f "$target"
+        if ! $SUDO ln -sf "$rules_file" "$target" 2>/dev/null; then
+            echo "ln -s failed (nosuid/chroot), using cp for $(basename "$rules_file")"
+            $SUDO cp --preserve=mode "$rules_file" "$target"
+        fi
+    done
 }
 
-verify_ready()
-{
-    # Allow running as root for systemd-nspawn/container environments
-    # When not root, we'll use sudo for privileged operations
-    # When root, privileged operations run directly
-    :
-}
 
 # Force script to exit if an error occurs
 set -xe
